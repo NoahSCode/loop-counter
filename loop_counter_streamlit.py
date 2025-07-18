@@ -12,7 +12,6 @@ def main():
 
     API_BASE_URL = "https://avail360-api.myavail.cloud/StopReports/v1/CATA/"
     
-    LOOP_MILEAGE = 4.3
     START_STOP = "Pattee TC EB"
     END_STOP = "Jordan East Pk"
     STOPS_TO_KEEP = [START_STOP, END_STOP, "Nittany Com Ctr", "College_Allen"]
@@ -24,6 +23,8 @@ def main():
     if not api_key:
         st.warning("Please enter your API subscription key to continue.")
         return
+
+    loop_mileage = st.number_input("Loop Mileage (miles)", min_value=0.1, max_value=100.0, value=4.3, step=0.1, help="Enter the mileage for one complete loop")
 
     st.header("Date Range Selection")
     col1, col2 = st.columns(2)
@@ -39,7 +40,7 @@ def main():
         return
 
     if st.button("Fetch, Process, and Download Summary", type="primary"):
-        run_full_process(start_date, end_date, api_key, API_BASE_URL, LOOP_MILEAGE, STOPS_TO_KEEP, DIRECTION_TO_KEEP)
+        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, STOPS_TO_KEEP, DIRECTION_TO_KEEP)
 
 def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, stops_to_keep, direction_to_keep):
     start_datetime = datetime.combine(start_date, time(6, 0))
