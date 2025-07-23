@@ -12,10 +12,22 @@ def main():
 
     API_BASE_URL = "https://avail360-api.myavail.cloud/StopReports/v1/CATA/"
     
-    START_STOP = "Pattee TC EB"
-    END_STOP = "Jordan East Pk"
-    STOPS_TO_KEEP = [START_STOP, END_STOP, "Nittany Com Ctr", "College_Allen"]
-    DIRECTION_TO_KEEP = 'L'
+    # Available stops for dropdown selection
+    AVAILABLE_STOPS = [
+        "Jordan East Pk", 
+        "Nittany Com Ctr", 
+        "College_Allen", 
+        "Pattee TC EB", 
+        "Lot 83 West", 
+        "Pattee TC WB", 
+        "Schlow Lib_CATA"
+    ]
+    
+    # Route mapping
+    ROUTE_MAPPING = {
+        "BL": "55",
+        "WL": "57"
+    }
 
     st.header("Configuration")
     api_key = st.text_input("API Subscription Key", type="password", help="Enter your API subscription key")
@@ -26,13 +38,35 @@ def main():
 
     loop_mileage = st.number_input("Loop Mileage (miles)", min_value=0.1, max_value=100.0, value=4.3, step=0.1, help="Enter the mileage for one complete loop")
 
-    st.header("Date Range Selection")
+    st.header("Route and Stop Selection")
     col1, col2 = st.columns(2)
     
     with col1:
-        start_date = st.date_input("Start Date", value=datetime.now().date())
+        route_loop = st.selectbox("Route Loop", ["BL", "WL"], help="Select the route loop to analyze")
     
     with col2:
+        direction = st.selectbox("Direction", ["L", "R"], help="Select the direction to analyze")
+
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        start_stop = st.selectbox("Start Stop", AVAILABLE_STOPS, index=3, help="Select the starting stop for loop counting")
+    
+    with col4:
+        end_stop = st.selectbox("End Stop", AVAILABLE_STOPS, index=0, help="Select the ending stop for loop counting")
+
+    # Create stops to keep list based on user selection
+    stops_to_keep = [start_stop, end_stop, "Nittany Com Ctr", "College_Allen"]
+    # Remove duplicates while preserving order
+    stops_to_keep = list(dict.fromkeys(stops_to_keep))
+
+    st.header("Date Range Selection")
+    col5, col6 = st.columns(2)
+    
+    with col5:
+        start_date = st.date_input("Start Date", value=datetime.now().date())
+    
+    with col6:
         end_date = st.date_input("End Date", value=datetime.now().date())
 
     if start_date > end_date:
@@ -40,9 +74,9 @@ def main():
         return
 
     if st.button("Fetch, Process, and Download Summary", type="primary"):
-        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, STOPS_TO_KEEP, DIRECTION_TO_KEEP)
+        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, stops_to_keep, direction, ROUTE_MAPPING[route_loop])
 
-def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, stops_to_keep, direction_to_keep):
+def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, stops_to_keep, direction_to_keep, route_filter):
     start_datetime = datetime.combine(start_date, time(6, 0))
     end_datetime = datetime.combine(end_date + timedelta(days=1), time(3, 0))
 
@@ -58,16 +92,21 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
             df = pd.DataFrame(api_data)
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
-            filter_condition = (df['Stop_Name'].isin(stops_to_keep)) & (df['Direction'] == direction_to_keep)
+            # Filter by stops, direction, and route
+            filter_condition = (
+                (df['Stop_Name'].isin(stops_to_keep)) & 
+                (df['Direction'] == direction_to_keep) &
+                (df['Route'] == route_filter)
+            )
             df_filtered = df[filter_condition].copy()
 
             if df_filtered.empty:
-                st.error(f"No data found for the specified stops and Direction '{direction_to_keep}'.")
+                st.error(f"No data found for the specified stops, Direction '{direction_to_keep}', and Route '{route_filter}'.")
                 return
 
             df_filtered.sort_values(by=['Vehicle', 'Route', 'Timestamp'], inplace=True)
             
-            loop_events = get_loop_events(df_filtered, loop_mileage)
+            loop_events = get_loop_events(df_filtered, loop_mileage, stops_to_keep[0])
             
             if loop_events.empty:
                 st.error("No complete loops were found in the data.")
@@ -121,7 +160,7 @@ def fetch_data_in_chunks(start_date, end_date, api_base_url, api_key):
     
     return all_reports
 
-def get_loop_events(df, loop_mileage):
+def get_loop_events(df, loop_mileage, start_stop):
     loop_events = []
     
     for (vehicle, route), group in df.groupby(['Vehicle', 'Route']):
@@ -133,7 +172,7 @@ def get_loop_events(df, loop_mileage):
             current_row = group_sorted.iloc[i]
             current_stop = current_row['Stop_Name']
             
-            if current_stop == "Pattee TC EB":
+            if current_stop == start_stop:
                 count += 1
                 loop_events.append({
                     'Vehicle': current_row['Vehicle'],
