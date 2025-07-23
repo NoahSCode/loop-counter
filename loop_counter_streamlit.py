@@ -93,16 +93,22 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
             df = pd.DataFrame(api_data)
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
-            # Filter by stops, direction, and route
+            # First, filter by route (BL=55, WL=57)
+            df_route_filtered = df[df['Route'] == route_filter].copy()
+            
+            if df_route_filtered.empty:
+                st.error(f"No data found for Route '{route_filter}' (Route Loop: {['BL' if route_filter == '55' else 'WL'][0]}).")
+                return
+
+            # Then filter by stops and direction
             filter_condition = (
-                (df['Stop_Name'].isin(stops_to_keep)) & 
-                (df['Direction'] == direction_to_keep) &
-                (df['Route'] == route_filter)
+                (df_route_filtered['Stop_Name'].isin(stops_to_keep)) & 
+                (df_route_filtered['Direction'] == direction_to_keep)
             )
-            df_filtered = df[filter_condition].copy()
+            df_filtered = df_route_filtered[filter_condition].copy()
 
             if df_filtered.empty:
-                st.error(f"No data found for the specified stops, Direction '{direction_to_keep}', and Route '{route_filter}'.")
+                st.error(f"No data found for the specified stops and Direction '{direction_to_keep}' in Route '{route_filter}'.")
                 return
 
             df_filtered.sort_values(by=['Vehicle', 'Route', 'Timestamp'], inplace=True)
