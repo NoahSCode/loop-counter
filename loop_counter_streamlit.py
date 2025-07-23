@@ -25,8 +25,8 @@ def main():
     
     # Route mapping
     ROUTE_MAPPING = {
-        "BL": "55",
-        "WL": "57"
+        "BL": 55,
+        "WL": 57
     }
 
     st.header("Configuration")
@@ -93,11 +93,20 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
             df = pd.DataFrame(api_data)
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
-            # First, filter by route (BL=55, WL=57)
-            df_route_filtered = df[df['Route'] == route_filter].copy()
+            # Debug: Show what routes are in the data
+            st.write(f"Total records in dataset: {len(df)}")
+            st.write(f"Available routes in data: {sorted(df['Route'].unique())}")
+            st.write(f"Route data types: {df['Route'].dtype}")
+            st.write(f"Looking for route: '{route_filter}' (type: {type(route_filter)})")
+
+            # First, filter by route (BL=55, WL=57) - convert to int since API data has integer routes
+            route_filter_int = int(route_filter)
+            df_route_filtered = df[df['Route'] == route_filter_int].copy()
+            
+            st.write(f"Records after route filtering: {len(df_route_filtered)}")
             
             if df_route_filtered.empty:
-                st.error(f"No data found for Route '{route_filter}' (Route Loop: {['BL' if route_filter == '55' else 'WL'][0]}).")
+                st.error(f"No data found for Route '{route_filter}' (Route Loop: {['BL' if route_filter == 55 else 'WL'][0]}).")
                 return
 
             # Then filter by stops and direction
