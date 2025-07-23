@@ -45,7 +45,8 @@ def main():
         route_loop = st.selectbox("Route Loop", ["BL", "WL"], help="Select the route loop to analyze")
     
     with col2:
-        direction = st.selectbox("Direction", ["L", "R"], help="Select the direction to analyze")
+        # Direction is always 'L' for loop counting
+        direction = "L"
 
     col3, col4 = st.columns(2)
     
