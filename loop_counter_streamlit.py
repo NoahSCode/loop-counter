@@ -120,7 +120,7 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 st.error(f"No data found for the specified stops and Direction '{direction_to_keep}' in Route '{route_filter}'.")
                 return
 
-            df_filtered.sort_values(by=['Vehicle', 'Route', 'Timestamp'], inplace=True)
+            df_filtered.sort_values(by=['Block', 'Route', 'Timestamp'], inplace=True)
             
             loop_events = get_loop_events(df_filtered, loop_mileage, stops_to_keep[0])
             
@@ -128,7 +128,7 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 st.error("No complete loops were found in the data.")
                 return
 
-            save_loop_events(loop_events)
+            save_loop_events(loop_events, loop_mileage)
 
         except Exception as e:
             st.error(f"An error occurred while processing the data: {e}")
@@ -179,19 +179,36 @@ def fetch_data_in_chunks(start_date, end_date, api_base_url, api_key):
 def get_loop_events(df, loop_mileage, start_stop):
     loop_events = []
     
-    for (vehicle, route), group in df.groupby(['Vehicle', 'Route']):
+    for (block, route), group in df.groupby(['Block', 'Route']):
         count = 0
+        last_service_day = None
         
         group_sorted = group.sort_values('Timestamp').reset_index(drop=True)
         
         for i in range(len(group_sorted)):
             current_row = group_sorted.iloc[i]
             current_stop = current_row['Stop_Name']
+            current_timestamp = pd.to_datetime(current_row['Timestamp'])
+            
+            # Determine service day (6 AM to 3 AM next day)
+            # If time is between 6 AM and 11:59 PM, service day is current date
+            # If time is between 12 AM and 3 AM, service day is previous date
+            if current_timestamp.hour >= 6:
+                service_day = current_timestamp.date()
+            else:
+                service_day = current_timestamp.date() - pd.Timedelta(days=1)
+            
+            # Reset counter if service day changes
+            if last_service_day is not None and service_day != last_service_day:
+                count = 0
+            
+            last_service_day = service_day
             
             if current_stop == start_stop:
                 count += 1
                 loop_events.append({
                     'Vehicle': current_row['Vehicle'],
+                    'Block': current_row['Block'],
                     'Route': current_row['Route'],
                     'Trip': current_row['Trip'],
                     'Stop_Name': current_row['Stop_Name'],
@@ -200,16 +217,18 @@ def get_loop_events(df, loop_mileage, start_stop):
                     'Total_Miles': round(count * loop_mileage, 2)
                 })
     
-    return pd.DataFrame(loop_events)
+    return pd.DataFrame(loop_events).reset_index(drop=True)
 
-def save_loop_events(loop_events_df):
+def save_loop_events(loop_events_df, loop_mileage):
     total_loops = len(loop_events_df)
-    total_miles = round(loop_events_df['Total_Miles'].sum(), 2)
+    # Calculate total miles as loop mileage times total number of loop events
+    total_miles = round(total_loops * loop_mileage, 2)
     
     output_df = loop_events_df.copy()
     
     total_row = pd.DataFrame([{
         'Vehicle': 'Total',
+        'Block': '',
         'Route': '',
         'Trip': '',
         'Stop_Name': '',
@@ -220,6 +239,8 @@ def save_loop_events(loop_events_df):
     
     final_df = pd.concat([output_df, total_row], ignore_index=True)
     
+    # Ensure the index is reset and explicitly exclude it from CSV
+    final_df = final_df.reset_index(drop=True)
     csv = final_df.to_csv(index=False)
     
     st.success(f"Processing complete! Total loop events: {total_loops}, Total miles: {total_miles:.2f}")
@@ -241,8 +262,8 @@ def save_loop_events(loop_events_df):
         st.metric("Total Miles", f"{total_miles:.2f}")
     
     with col3:
-        unique_vehicles = len(loop_events_df['Vehicle'].unique())
-        st.metric("Unique Vehicles", unique_vehicles)
+        unique_blocks = len(loop_events_df['Block'].unique())
+        st.metric("Unique Blocks", unique_blocks)
     
     st.header("Loop Events Data")
     st.dataframe(loop_events_df, use_container_width=True)
