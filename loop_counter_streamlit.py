@@ -179,7 +179,18 @@ def fetch_data_in_chunks(start_date, end_date, api_base_url, api_key):
 def get_loop_events(df, loop_mileage, start_stop):
     loop_events = []
     
-    for (block, route), group in df.groupby(['Block', 'Route']):
+    # IMPORTANT: Deduplicate records to avoid double-counting
+    # Some API responses contain duplicate records with same Vehicle, Block, Route, Timestamp, Stop_Name
+    # but different Trip IDs. We need to remove these duplicates before counting loops.
+    df_deduped = df.drop_duplicates(subset=['Vehicle', 'Block', 'Route', 'Timestamp', 'Stop_Name'], keep='first')
+    
+    # Debug info about deduplication
+    original_count = len(df)
+    deduped_count = len(df_deduped)
+    if original_count != deduped_count:
+        st.write(f"⚠️ Removed {original_count - deduped_count} duplicate records from {original_count} total records")
+    
+    for (block, route), group in df_deduped.groupby(['Block', 'Route']):
         count = 0
         last_service_day = None
         
