@@ -26,7 +26,9 @@ def main():
     # Route mapping
     ROUTE_MAPPING = {
         "BL": 55,
-        "WL": 57
+        "WL": 57,
+        "BL Gameday": 955,
+        "WL Gameday": 957
     }
 
     st.header("Configuration")
@@ -42,7 +44,7 @@ def main():
     col1, col2 = st.columns(2)
     
     with col1:
-        route_loop = st.selectbox("Route Loop", ["BL", "WL"], help="Select the route loop to analyze")
+        route_loop = st.selectbox("Route Loop", ["BL", "WL", "BL Gameday", "WL Gameday"], help="Select the route loop to analyze")
     
     with col2:
         # Direction is always 'L' for loop counting
@@ -75,9 +77,9 @@ def main():
         return
 
     if st.button("Fetch, Process, and Download Summary", type="primary"):
-        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, stops_to_keep, direction, ROUTE_MAPPING[route_loop])
+        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, stops_to_keep, direction, ROUTE_MAPPING[route_loop], ROUTE_MAPPING)
 
-def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, stops_to_keep, direction_to_keep, route_filter):
+def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, stops_to_keep, direction_to_keep, route_filter, route_mapping):
     start_datetime = datetime.combine(start_date, time(6, 0))
     end_datetime = datetime.combine(end_date + timedelta(days=1), time(3, 0))
 
@@ -106,7 +108,9 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
             st.write(f"Records after route filtering: {len(df_route_filtered)}")
             
             if df_route_filtered.empty:
-                st.error(f"No data found for Route '{route_filter}' (Route Loop: {['BL' if route_filter == 55 else 'WL'][0]}).")
+                # Find the route loop name for the error message
+                route_name = next((k for k, v in route_mapping.items() if v == route_filter_int), f"Route {route_filter}")
+                st.error(f"No data found for Route '{route_filter}' ({route_name}).")
                 return
 
             # Then filter by stops and direction
@@ -122,7 +126,7 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
 
             df_filtered.sort_values(by=['Block', 'Route', 'Timestamp'], inplace=True)
             
-            loop_events = get_loop_events(df_filtered, loop_mileage, stops_to_keep[0])
+            loop_events = get_loop_events(df_filtered, loop_mileage, stops_to_keep[0], stops_to_keep[1])
             
             if loop_events.empty:
                 st.error("No complete loops were found in the data.")
@@ -176,7 +180,7 @@ def fetch_data_in_chunks(start_date, end_date, api_base_url, api_key):
     
     return all_reports
 
-def get_loop_events(df, loop_mileage, start_stop):
+def get_loop_events(df, loop_mileage, start_stop, end_stop):
     loop_events = []
     
     # IMPORTANT: Deduplicate records to avoid double-counting
@@ -190,43 +194,56 @@ def get_loop_events(df, loop_mileage, start_stop):
     if original_count != deduped_count:
         st.write(f"⚠️ Removed {original_count - deduped_count} duplicate records from {original_count} total records")
     
-    for (block, route), group in df_deduped.groupby(['Block', 'Route']):
-        count = 0
-        last_service_day = None
-        
+    # Group by Vehicle and Block to track each bus's journey
+    for (vehicle, block, route), group in df_deduped.groupby(['Vehicle', 'Block', 'Route']):
         group_sorted = group.sort_values('Timestamp').reset_index(drop=True)
+        
+        # Track trips and which stops they've visited
+        trip_stops = {}  # trip_id -> set of stops visited
         
         for i in range(len(group_sorted)):
             current_row = group_sorted.iloc[i]
             current_stop = current_row['Stop_Name']
+            current_trip = current_row['Trip']
             current_timestamp = pd.to_datetime(current_row['Timestamp'])
             
-            # Determine service day (6 AM to 3 AM next day)
-            # If time is between 6 AM and 11:59 PM, service day is current date
-            # If time is between 12 AM and 3 AM, service day is previous date
-            if current_timestamp.hour >= 6:
-                service_day = current_timestamp.date()
-            else:
-                service_day = current_timestamp.date() - pd.Timedelta(days=1)
+            # Initialize trip if we haven't seen it
+            if current_trip not in trip_stops:
+                trip_stops[current_trip] = set()
             
-            # Reset counter if service day changes
-            if last_service_day is not None and service_day != last_service_day:
-                count = 0
+            # Add this stop to the trip's visited stops
+            trip_stops[current_trip].add(current_stop)
             
-            last_service_day = service_day
-            
-            if current_stop == start_stop:
-                count += 1
-                loop_events.append({
-                    'Vehicle': current_row['Vehicle'],
-                    'Block': current_row['Block'],
-                    'Route': current_row['Route'],
-                    'Trip': current_row['Trip'],
-                    'Stop_Name': current_row['Stop_Name'],
-                    'Timestamp': current_row['Timestamp'],
-                    'Loop_Count': count,
-                    'Total_Miles': round(count * loop_mileage, 2)
-                })
+            # Check if this trip has now completed a loop (visited both start and end stops)
+            if start_stop in trip_stops[current_trip] and end_stop in trip_stops[current_trip]:
+                # Only record the loop once per trip (when we first detect completion)
+                existing_loop = any(event['Trip'] == current_trip for event in loop_events)
+                
+                if not existing_loop:
+                    # Determine service day (6 AM to 3 AM next day)
+                    if current_timestamp.hour >= 6:
+                        service_day = current_timestamp.date()
+                    else:
+                        service_day = current_timestamp.date() - pd.Timedelta(days=1)
+                    
+                    # Count loops for this service day
+                    daily_loops = len([event for event in loop_events 
+                                     if event['Vehicle'] == vehicle and event['Block'] == block
+                                     and pd.to_datetime(event['Loop_Completed_At']).date() == service_day])
+                    
+                    loop_count = daily_loops + 1
+                    
+                    loop_events.append({
+                        'Vehicle': vehicle,
+                        'Block': block,
+                        'Route': route,
+                        'Trip': current_trip,
+                        'Start_Stop': start_stop,
+                        'End_Stop': end_stop,
+                        'Loop_Completed_At': current_row['Timestamp'],
+                        'Loop_Count': loop_count,
+                        'Total_Miles': round(loop_count * loop_mileage, 2)
+                    })
     
     return pd.DataFrame(loop_events).reset_index(drop=True)
 
@@ -242,8 +259,9 @@ def save_loop_events(loop_events_df, loop_mileage):
         'Block': '',
         'Route': '',
         'Trip': '',
-        'Stop_Name': '',
-        'Timestamp': '',
+        'Start_Stop': '',
+        'End_Stop': '',
+        'Loop_Completed_At': '',
         'Loop_Count': total_loops,
         'Total_Miles': total_miles
     }])
