@@ -137,30 +137,8 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 st.error(f"No data found for Route '{route_filter}' ({route_name}).")
                 return
 
-            # Debug: Show vehicle 206 data before stop/direction filtering
-            vehicle_206_before = df_route_filtered[df_route_filtered['Vehicle'] == 206]
-            if len(vehicle_206_before) > 0:
-                st.write(f"🔍 DEBUG: Vehicle 206 records before stop/direction filtering: {len(vehicle_206_before)}")
-                trip_1454_before = vehicle_206_before[vehicle_206_before['Trip'] == 1454]
-                st.write(f"🔍 DEBUG: Vehicle 206 Trip 1454 records before filtering: {len(trip_1454_before)}")
-                if len(trip_1454_before) > 0:
-                    st.write("🔍 DEBUG: Trip 1454 stops before filtering:")
-                    st.dataframe(trip_1454_before[['Stop_Name', 'Direction', 'Timestamp']].sort_values('Timestamp'))
-                    st.write(f"🔍 DEBUG: Looking for start: '{start_stop}', end: '{end_stop}'")
-                    st.write(f"🔍 DEBUG: Direction to keep: '{direction_to_keep}'")
-            
             # Filter by direction only (NOT by stops - we need to see all stops to detect complete loops)
             df_filtered = df_route_filtered[df_route_filtered['Direction'] == direction_to_keep].copy()
-            
-            # Debug: Show vehicle 206 data after stop/direction filtering
-            vehicle_206_after = df_filtered[df_filtered['Vehicle'] == 206]
-            if len(vehicle_206_after) > 0:
-                st.write(f"🔍 DEBUG: Vehicle 206 records after stop/direction filtering: {len(vehicle_206_after)}")
-                trip_1454_after = vehicle_206_after[vehicle_206_after['Trip'] == 1454]
-                st.write(f"🔍 DEBUG: Vehicle 206 Trip 1454 records after filtering: {len(trip_1454_after)}")
-                if len(trip_1454_after) > 0:
-                    st.write("🔍 DEBUG: Trip 1454 stops after filtering:")
-                    st.dataframe(trip_1454_after[['Stop_Name', 'Direction', 'Timestamp']].sort_values('Timestamp'))
 
             if df_filtered.empty:
                 st.error(f"No data found for the specified stops and Direction '{direction_to_keep}' in Route '{route_filter}'.")
@@ -229,15 +207,9 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
     for (vehicle, block, route), group in df.groupby(['Vehicle', 'Block', 'Route']):
         group_sorted = group.sort_values('Timestamp').reset_index(drop=True)
         
-        # Debug output for vehicle 206
-        if vehicle == 206:
-            st.write(f"🔍 DEBUG: Processing vehicle 206, block {block}, route {route}")
-            st.write(f"Records for vehicle 206: {len(group_sorted)}")
-            st.dataframe(group_sorted[['Trip', 'Stop_Name', 'Timestamp']].head(20))
         
-        # Track trips and which stops they've visited with timestamps
-        trip_data = {}  # trip_id -> {'stops': set, 'start_time': timestamp, 'end_time': timestamp}
-        processed_trips = set()  # Keep track of trips we've already processed to avoid duplicates
+        # Track loop states for each trip
+        trip_loops = {}  # trip_id -> {'waiting_for_end': False, 'start_time': None, 'completed_loops': []}
         
         for i in range(len(group_sorted)):
             current_row = group_sorted.iloc[i]
@@ -246,47 +218,22 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
             current_timestamp = pd.to_datetime(current_row['Timestamp'])
             
             # Initialize trip if we haven't seen it
-            if current_trip not in trip_data:
-                trip_data[current_trip] = {'stops': set(), 'start_time': None, 'end_time': None}
+            if current_trip not in trip_loops:
+                trip_loops[current_trip] = {'waiting_for_end': False, 'start_time': None, 'completed_loops': []}
             
-            # Add this stop to the trip's visited stops
-            trip_data[current_trip]['stops'].add(current_stop)
+            # Check if this is a start stop visit
+            if current_stop == start_stop:
+                # Start a new potential loop
+                trip_loops[current_trip]['waiting_for_end'] = True
+                trip_loops[current_trip]['start_time'] = current_row['Timestamp']
             
-            # Record timestamps when we hit start or end stops (only first time)
-            if current_stop == start_stop and trip_data[current_trip]['start_time'] is None:
-                trip_data[current_trip]['start_time'] = current_row['Timestamp']
-            elif current_stop == end_stop and trip_data[current_trip]['end_time'] is None:
-                trip_data[current_trip]['end_time'] = current_row['Timestamp']
-            
-            # Debug for vehicle 206 trip 1454
-            if vehicle == 206 and current_trip == 1454:
-                st.write(f"🔍 DEBUG Trip 1454: Stop {current_stop}, Time {current_timestamp}")
-                st.write(f"  - Stops visited so far: {trip_data[current_trip]['stops']}")
-                st.write(f"  - Start time: {trip_data[current_trip]['start_time']}")
-                st.write(f"  - End time: {trip_data[current_trip]['end_time']}")
-                st.write(f"  - Looking for start: '{start_stop}', end: '{end_stop}'")
-                st.write(f"  - Start in stops? {start_stop in trip_data[current_trip]['stops']}")
-                st.write(f"  - End in stops? {end_stop in trip_data[current_trip]['stops']}")
-            
-            # Check if this trip has now completed a loop (visited both start and end stops)
-            # and we haven't processed it yet
-            if (start_stop in trip_data[current_trip]['stops'] and 
-                end_stop in trip_data[current_trip]['stops'] and
-                trip_data[current_trip]['start_time'] is not None and
-                trip_data[current_trip]['end_time'] is not None and
-                current_trip not in processed_trips):
+            # Check if this is an end stop visit and we're waiting for it
+            elif current_stop == end_stop and trip_loops[current_trip]['waiting_for_end']:
+                # Complete the loop!
+                completion_timestamp = current_timestamp
                 
-                # Debug for vehicle 206 trip 1454
-                if vehicle == 206 and current_trip == 1454:
-                    st.write(f"🎉 DEBUG: Trip 1454 LOOP DETECTED!")
-                
-                # Mark this trip as processed to avoid duplicate processing
-                processed_trips.add(current_trip)
-                
-                # Determine which timestamp to use for completion (the later of the two)
-                start_ts = pd.to_datetime(trip_data[current_trip]['start_time'])
-                end_ts = pd.to_datetime(trip_data[current_trip]['end_time'])
-                completion_timestamp = max(start_ts, end_ts)
+                # Reset the waiting state for this trip (in case it does multiple loops)
+                trip_loops[current_trip]['waiting_for_end'] = False
                 
                 # Determine service day (6 AM to 3 AM next day)
                 if completion_timestamp.hour >= 6:
