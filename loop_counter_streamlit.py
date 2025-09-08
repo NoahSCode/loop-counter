@@ -58,10 +58,7 @@ def main():
     with col4:
         end_stop = st.selectbox("End Stop", AVAILABLE_STOPS, index=0, help="Select the ending stop for loop counting")
 
-    # Create stops to keep list based on user selection
-    stops_to_keep = [start_stop, end_stop, "Nittany Com Ctr", "College_Allen"]
-    # Remove duplicates while preserving order
-    stops_to_keep = list(dict.fromkeys(stops_to_keep))
+    # We no longer filter by stops - we need all stops to detect complete loops
 
     st.header("Date Range Selection")
     col5, col6 = st.columns(2)
@@ -77,9 +74,9 @@ def main():
         return
 
     if st.button("Fetch, Process, and Download Summary", type="primary"):
-        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, stops_to_keep, direction, ROUTE_MAPPING[route_loop], ROUTE_MAPPING)
+        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, start_stop, end_stop, direction, ROUTE_MAPPING[route_loop], ROUTE_MAPPING)
 
-def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, stops_to_keep, direction_to_keep, route_filter, route_mapping):
+def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, start_stop, end_stop, direction_to_keep, route_filter, route_mapping):
     start_datetime = datetime.combine(start_date, time(6, 0))
     end_datetime = datetime.combine(end_date + timedelta(days=1), time(3, 0))
 
@@ -149,15 +146,11 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 if len(trip_1454_before) > 0:
                     st.write("🔍 DEBUG: Trip 1454 stops before filtering:")
                     st.dataframe(trip_1454_before[['Stop_Name', 'Direction', 'Timestamp']].sort_values('Timestamp'))
-                    st.write(f"🔍 DEBUG: Stops to keep: {stops_to_keep}")
+                    st.write(f"🔍 DEBUG: Looking for start: '{start_stop}', end: '{end_stop}'")
                     st.write(f"🔍 DEBUG: Direction to keep: '{direction_to_keep}'")
             
-            # Then filter by stops and direction
-            filter_condition = (
-                (df_route_filtered['Stop_Name'].isin(stops_to_keep)) & 
-                (df_route_filtered['Direction'] == direction_to_keep)
-            )
-            df_filtered = df_route_filtered[filter_condition].copy()
+            # Filter by direction only (NOT by stops - we need to see all stops to detect complete loops)
+            df_filtered = df_route_filtered[df_route_filtered['Direction'] == direction_to_keep].copy()
             
             # Debug: Show vehicle 206 data after stop/direction filtering
             vehicle_206_after = df_filtered[df_filtered['Vehicle'] == 206]
@@ -175,7 +168,7 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
 
             df_filtered.sort_values(by=['Block', 'Route', 'Timestamp'], inplace=True)
             
-            loop_events = get_loop_events(df_filtered, loop_mileage, stops_to_keep[0], stops_to_keep[1])
+            loop_events = get_loop_events(df_filtered, loop_mileage, start_stop, end_stop)
             
             if loop_events.empty:
                 st.error("No complete loops were found in the data.")
