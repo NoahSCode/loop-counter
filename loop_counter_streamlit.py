@@ -242,23 +242,27 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
             # Add this stop to the trip's visited stops
             trip_data[current_trip]['stops'].add(current_stop)
             
-            # Record timestamps when we hit start or end stops
-            if current_stop == start_stop:
+            # Record timestamps when we hit start or end stops (only first time)
+            if current_stop == start_stop and trip_data[current_trip]['start_time'] is None:
                 trip_data[current_trip]['start_time'] = current_row['Timestamp']
-            elif current_stop == end_stop:
+            elif current_stop == end_stop and trip_data[current_trip]['end_time'] is None:
                 trip_data[current_trip]['end_time'] = current_row['Timestamp']
             
             # Check if this trip has now completed a loop (visited both start and end stops)
+            # and we haven't processed it yet
             if (start_stop in trip_data[current_trip]['stops'] and 
                 end_stop in trip_data[current_trip]['stops'] and
+                trip_data[current_trip]['start_time'] is not None and
                 trip_data[current_trip]['end_time'] is not None and
                 current_trip not in processed_trips):
                 
                 # Mark this trip as processed to avoid duplicate processing
                 processed_trips.add(current_trip)
                 
-                # Use the end stop timestamp for loop completion
-                completion_timestamp = pd.to_datetime(trip_data[current_trip]['end_time'])
+                # Determine which timestamp to use for completion (the later of the two)
+                start_ts = pd.to_datetime(trip_data[current_trip]['start_time'])
+                end_ts = pd.to_datetime(trip_data[current_trip]['end_time'])
+                completion_timestamp = max(start_ts, end_ts)
                 
                 # Determine service day (6 AM to 3 AM next day)
                 if completion_timestamp.hour >= 6:
@@ -287,7 +291,7 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                     'Trip': current_trip,
                     'Start_Stop': start_stop,
                     'End_Stop': end_stop,
-                    'Loop_Completed_At': trip_data[current_trip]['end_time'],
+                    'Loop_Completed_At': completion_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                     'Loop_Count': loop_count,
                     'Total_Miles': round(loop_count * loop_mileage, 2)
                 })
