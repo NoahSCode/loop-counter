@@ -225,8 +225,8 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
     for (vehicle, block, route), group in df_deduped.groupby(['Vehicle', 'Block', 'Route']):
         group_sorted = group.sort_values('Timestamp').reset_index(drop=True)
         
-        # Track trips and which stops they've visited
-        trip_stops = {}  # trip_id -> set of stops visited
+        # Track trips and which stops they've visited with timestamps
+        trip_data = {}  # trip_id -> {'stops': set, 'start_time': timestamp, 'end_time': timestamp}
         
         for i in range(len(group_sorted)):
             current_row = group_sorted.iloc[i]
@@ -235,23 +235,35 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
             current_timestamp = pd.to_datetime(current_row['Timestamp'])
             
             # Initialize trip if we haven't seen it
-            if current_trip not in trip_stops:
-                trip_stops[current_trip] = set()
+            if current_trip not in trip_data:
+                trip_data[current_trip] = {'stops': set(), 'start_time': None, 'end_time': None}
             
             # Add this stop to the trip's visited stops
-            trip_stops[current_trip].add(current_stop)
+            trip_data[current_trip]['stops'].add(current_stop)
+            
+            # Record timestamps when we hit start or end stops
+            if current_stop == start_stop:
+                trip_data[current_trip]['start_time'] = current_row['Timestamp']
+            elif current_stop == end_stop:
+                trip_data[current_trip]['end_time'] = current_row['Timestamp']
             
             # Check if this trip has now completed a loop (visited both start and end stops)
-            if start_stop in trip_stops[current_trip] and end_stop in trip_stops[current_trip]:
+            if (start_stop in trip_data[current_trip]['stops'] and 
+                end_stop in trip_data[current_trip]['stops'] and
+                trip_data[current_trip]['end_time'] is not None):
+                
                 # Only record the loop once per trip (when we first detect completion)
                 existing_loop = any(event['Trip'] == current_trip for event in loop_events)
                 
                 if not existing_loop:
+                    # Use the end stop timestamp for loop completion
+                    completion_timestamp = pd.to_datetime(trip_data[current_trip]['end_time'])
+                    
                     # Determine service day (6 AM to 3 AM next day)
-                    if current_timestamp.hour >= 6:
-                        service_day = current_timestamp.date()
+                    if completion_timestamp.hour >= 6:
+                        service_day = completion_timestamp.date()
                     else:
-                        service_day = current_timestamp.date() - pd.Timedelta(days=1)
+                        service_day = completion_timestamp.date() - pd.Timedelta(days=1)
                     
                     # Count loops for this service day
                     daily_loops = len([event for event in loop_events 
@@ -267,7 +279,7 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                         'Trip': current_trip,
                         'Start_Stop': start_stop,
                         'End_Stop': end_stop,
-                        'Loop_Completed_At': current_row['Timestamp'],
+                        'Loop_Completed_At': trip_data[current_trip]['end_time'],
                         'Loop_Count': loop_count,
                         'Total_Miles': round(loop_count * loop_mileage, 2)
                     })
