@@ -140,12 +140,34 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 st.error(f"No data found for Route '{route_filter}' ({route_name}).")
                 return
 
+            # Debug: Show vehicle 206 data before stop/direction filtering
+            vehicle_206_before = df_route_filtered[df_route_filtered['Vehicle'] == 206]
+            if len(vehicle_206_before) > 0:
+                st.write(f"🔍 DEBUG: Vehicle 206 records before stop/direction filtering: {len(vehicle_206_before)}")
+                trip_1454_before = vehicle_206_before[vehicle_206_before['Trip'] == 1454]
+                st.write(f"🔍 DEBUG: Vehicle 206 Trip 1454 records before filtering: {len(trip_1454_before)}")
+                if len(trip_1454_before) > 0:
+                    st.write("🔍 DEBUG: Trip 1454 stops before filtering:")
+                    st.dataframe(trip_1454_before[['Stop_Name', 'Direction', 'Timestamp']].sort_values('Timestamp'))
+                    st.write(f"🔍 DEBUG: Stops to keep: {stops_to_keep}")
+                    st.write(f"🔍 DEBUG: Direction to keep: '{direction_to_keep}'")
+            
             # Then filter by stops and direction
             filter_condition = (
                 (df_route_filtered['Stop_Name'].isin(stops_to_keep)) & 
                 (df_route_filtered['Direction'] == direction_to_keep)
             )
             df_filtered = df_route_filtered[filter_condition].copy()
+            
+            # Debug: Show vehicle 206 data after stop/direction filtering
+            vehicle_206_after = df_filtered[df_filtered['Vehicle'] == 206]
+            if len(vehicle_206_after) > 0:
+                st.write(f"🔍 DEBUG: Vehicle 206 records after stop/direction filtering: {len(vehicle_206_after)}")
+                trip_1454_after = vehicle_206_after[vehicle_206_after['Trip'] == 1454]
+                st.write(f"🔍 DEBUG: Vehicle 206 Trip 1454 records after filtering: {len(trip_1454_after)}")
+                if len(trip_1454_after) > 0:
+                    st.write("🔍 DEBUG: Trip 1454 stops after filtering:")
+                    st.dataframe(trip_1454_after[['Stop_Name', 'Direction', 'Timestamp']].sort_values('Timestamp'))
 
             if df_filtered.empty:
                 st.error(f"No data found for the specified stops and Direction '{direction_to_keep}' in Route '{route_filter}'.")
