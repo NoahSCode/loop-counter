@@ -95,6 +95,33 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
             df = pd.DataFrame(api_data)
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
+            # Add raw data download button
+            st.success("✅ Raw API data fetched successfully!")
+            
+            # Show raw data statistics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Records", len(df))
+            with col2:
+                st.metric("Unique Vehicles", len(df['Vehicle'].unique()))
+            with col3:
+                st.metric("Unique Routes", len(df['Route'].unique()))
+            with col4:
+                st.metric("Unique Stops", len(df['Stop_Name'].unique()))
+            
+            raw_csv = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Raw API Data (CSV)",
+                data=raw_csv,
+                file_name=f"Raw_API_Data_{start_date}_{end_date}.csv",
+                mime="text/csv",
+                help="Download the complete raw API data before any filtering or processing"
+            )
+            
+            # Add expandable raw data preview
+            with st.expander("🔍 Preview Raw Data (First 100 rows)"):
+                st.dataframe(df.head(100), use_container_width=True)
+
             # Debug: Show what routes are in the data
             st.write(f"Total records in dataset: {len(df)}")
             st.write(f"Available routes in data: {sorted(df['Route'].unique())}")
