@@ -225,6 +225,12 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
     for (vehicle, block, route), group in df_deduped.groupby(['Vehicle', 'Block', 'Route']):
         group_sorted = group.sort_values('Timestamp').reset_index(drop=True)
         
+        # Debug output for vehicle 206
+        if vehicle == 206:
+            st.write(f"🔍 DEBUG: Processing vehicle 206, block {block}, route {route}")
+            st.write(f"Records for vehicle 206: {len(group_sorted)}")
+            st.dataframe(group_sorted[['Trip', 'Stop_Name', 'Timestamp']].head(20))
+        
         # Track trips and which stops they've visited with timestamps
         trip_data = {}  # trip_id -> {'stops': set, 'start_time': timestamp, 'end_time': timestamp}
         processed_trips = set()  # Keep track of trips we've already processed to avoid duplicates
@@ -248,6 +254,16 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
             elif current_stop == end_stop and trip_data[current_trip]['end_time'] is None:
                 trip_data[current_trip]['end_time'] = current_row['Timestamp']
             
+            # Debug for vehicle 206 trip 1454
+            if vehicle == 206 and current_trip == 1454:
+                st.write(f"🔍 DEBUG Trip 1454: Stop {current_stop}, Time {current_timestamp}")
+                st.write(f"  - Stops visited so far: {trip_data[current_trip]['stops']}")
+                st.write(f"  - Start time: {trip_data[current_trip]['start_time']}")
+                st.write(f"  - End time: {trip_data[current_trip]['end_time']}")
+                st.write(f"  - Looking for start: '{start_stop}', end: '{end_stop}'")
+                st.write(f"  - Start in stops? {start_stop in trip_data[current_trip]['stops']}")
+                st.write(f"  - End in stops? {end_stop in trip_data[current_trip]['stops']}")
+            
             # Check if this trip has now completed a loop (visited both start and end stops)
             # and we haven't processed it yet
             if (start_stop in trip_data[current_trip]['stops'] and 
@@ -255,6 +271,10 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                 trip_data[current_trip]['start_time'] is not None and
                 trip_data[current_trip]['end_time'] is not None and
                 current_trip not in processed_trips):
+                
+                # Debug for vehicle 206 trip 1454
+                if vehicle == 206 and current_trip == 1454:
+                    st.write(f"🎉 DEBUG: Trip 1454 LOOP DETECTED!")
                 
                 # Mark this trip as processed to avoid duplicate processing
                 processed_trips.add(current_trip)
