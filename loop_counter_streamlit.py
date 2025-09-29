@@ -144,7 +144,8 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 st.error(f"No data found for the specified stops and Direction '{direction_to_keep}' in Route '{route_filter}'.")
                 return
 
-            df_filtered.sort_values(by=['Block', 'Route', 'Timestamp'], inplace=True)
+            # Sort by Block first, then by Timestamp to ensure proper chronological order within blocks
+            df_filtered.sort_values(by=['Block', 'Timestamp'], inplace=True)
             
             loop_events = get_loop_events(df_filtered, loop_mileage, start_stop, end_stop)
             
@@ -203,8 +204,11 @@ def fetch_data_in_chunks(start_date, end_date, api_base_url, api_key):
 def get_loop_events(df, loop_mileage, start_stop, end_stop):
     loop_events = []
     
+    # Sort the entire dataframe by Block and Timestamp first to ensure proper processing order
+    df_sorted = df.sort_values(['Block', 'Timestamp']).reset_index(drop=True)
+    
     # Group by Vehicle and Block to track each bus's journey
-    for (vehicle, block, route), group in df.groupby(['Vehicle', 'Block', 'Route']):
+    for (vehicle, block, route), group in df_sorted.groupby(['Vehicle', 'Block', 'Route']):
         group_sorted = group.sort_values('Timestamp').reset_index(drop=True)
         
         
@@ -241,7 +245,8 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                 else:
                     service_day = completion_timestamp.date() - pd.Timedelta(days=1)
                 
-                # Count loops for this service day by block (not vehicle)
+                # Count loops for this service day across ALL blocks to ensure continuous counting
+                # when vehicles change blocks during the same service day
                 def get_service_day(timestamp):
                     ts = pd.to_datetime(timestamp)
                     if ts.hour >= 6:
@@ -249,9 +254,9 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                     else:
                         return ts.date() - pd.Timedelta(days=1)
                 
+                # Count all loops completed on this service day (across all blocks)
                 daily_loops = len([event for event in loop_events 
-                                 if event['Block'] == block
-                                 and get_service_day(event['Loop_Completed_At']) == service_day])
+                                 if get_service_day(event['Loop_Completed_At']) == service_day])
                 
                 loop_count = daily_loops + 1
                 
@@ -267,7 +272,15 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                     'Total_Miles': round(loop_count * loop_mileage, 2)
                 })
     
-    return pd.DataFrame(loop_events).reset_index(drop=True)
+    # Convert to DataFrame and sort by Block and then by completion time
+    loop_events_df = pd.DataFrame(loop_events)
+    if not loop_events_df.empty:
+        # Sort by Block first, then by Loop_Completed_At to maintain chronological order within blocks
+        loop_events_df['Loop_Completed_At_dt'] = pd.to_datetime(loop_events_df['Loop_Completed_At'])
+        loop_events_df = loop_events_df.sort_values(['Block', 'Loop_Completed_At_dt'])
+        loop_events_df = loop_events_df.drop('Loop_Completed_At_dt', axis=1)  # Remove temporary column
+    
+    return loop_events_df.reset_index(drop=True)
 
 def save_loop_events(loop_events_df, loop_mileage):
     total_loops = len(loop_events_df)
