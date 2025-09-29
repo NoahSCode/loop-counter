@@ -245,8 +245,7 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                 else:
                     service_day = completion_timestamp.date() - pd.Timedelta(days=1)
                 
-                # Count loops for this service day across ALL blocks to ensure continuous counting
-                # when vehicles change blocks during the same service day
+                # Count loops for this service day for THIS VEHICLE (across blocks if vehicle changes blocks)
                 def get_service_day(timestamp):
                     ts = pd.to_datetime(timestamp)
                     if ts.hour >= 6:
@@ -254,9 +253,10 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                     else:
                         return ts.date() - pd.Timedelta(days=1)
                 
-                # Count all loops completed on this service day (across all blocks)
+                # Count loops completed by this specific vehicle on this service day (across all blocks)
                 daily_loops = len([event for event in loop_events 
-                                 if get_service_day(event['Loop_Completed_At']) == service_day])
+                                 if event['Vehicle'] == vehicle
+                                 and get_service_day(event['Loop_Completed_At']) == service_day])
                 
                 loop_count = daily_loops + 1
                 
