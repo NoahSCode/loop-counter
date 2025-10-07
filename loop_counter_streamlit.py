@@ -214,12 +214,59 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
         
         # Track loop states for each trip
         trip_loops = {}  # trip_id -> {'waiting_for_end': False, 'start_time': None, 'completed_loops': []}
+        previous_trip = None
         
         for i in range(len(group_sorted)):
             current_row = group_sorted.iloc[i]
             current_stop = current_row['Stop_Name']
             current_trip = current_row['Trip']
             current_timestamp = pd.to_datetime(current_row['Timestamp'])
+            
+            # Detect trip flip: if we're moving to a new trip and the previous trip was waiting for an end stop
+            if previous_trip is not None and current_trip != previous_trip:
+                if previous_trip in trip_loops and trip_loops[previous_trip]['waiting_for_end']:
+                    # Check if the current stop (first stop of new trip) is the end stop we were waiting for
+                    if current_stop == end_stop:
+                        # Trip flip detected! Complete the loop for the PREVIOUS trip
+                        completion_timestamp = current_timestamp
+                        
+                        # Determine service day (6 AM to 3 AM next day)
+                        if completion_timestamp.hour >= 6:
+                            service_day = completion_timestamp.date()
+                        else:
+                            service_day = completion_timestamp.date() - pd.Timedelta(days=1)
+                        
+                        # Count loops for this service day for THIS VEHICLE (across blocks if vehicle changes blocks)
+                        def get_service_day(timestamp):
+                            ts = pd.to_datetime(timestamp)
+                            if ts.hour >= 6:
+                                return ts.date()
+                            else:
+                                return ts.date() - pd.Timedelta(days=1)
+                        
+                        # Count loops completed by this specific vehicle on this service day (across all blocks)
+                        daily_loops = len([event for event in loop_events 
+                                         if event['Vehicle'] == vehicle
+                                         and get_service_day(event['Loop_Completed_At']) == service_day])
+                        
+                        loop_count = daily_loops + 1
+                        
+                        loop_events.append({
+                            'Vehicle': vehicle,
+                            'Block': block,
+                            'Route': route,
+                            'Trip': previous_trip,  # Count for the ORIGINAL trip where loop started
+                            'Start_Stop': start_stop,
+                            'End_Stop': end_stop,
+                            'Loop_Completed_At': completion_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                            'Loop_Count': loop_count,
+                            'Total_Miles': round(loop_count * loop_mileage, 2),
+                            'Trip_Flip': True,  # Flag to indicate this was a trip flip
+                            'End_Trip': current_trip  # The trip where the end stop was actually found
+                        })
+                        
+                        # Mark the previous trip as no longer waiting
+                        trip_loops[previous_trip]['waiting_for_end'] = False
             
             # Initialize trip if we haven't seen it
             if current_trip not in trip_loops:
@@ -269,8 +316,13 @@ def get_loop_events(df, loop_mileage, start_stop, end_stop):
                     'End_Stop': end_stop,
                     'Loop_Completed_At': completion_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                     'Loop_Count': loop_count,
-                    'Total_Miles': round(loop_count * loop_mileage, 2)
+                    'Total_Miles': round(loop_count * loop_mileage, 2),
+                    'Trip_Flip': False,  # Normal loop completion
+                    'End_Trip': current_trip
                 })
+            
+            # Update previous trip tracker
+            previous_trip = current_trip
     
     # Convert to DataFrame and sort by Block and then by completion time
     loop_events_df = pd.DataFrame(loop_events)
@@ -287,6 +339,9 @@ def save_loop_events(loop_events_df, loop_mileage):
     # Calculate total miles as loop mileage times total number of loop events
     total_miles = round(total_loops * loop_mileage, 2)
     
+    # Count trip flips if the column exists
+    trip_flip_count = loop_events_df['Trip_Flip'].sum() if 'Trip_Flip' in loop_events_df.columns else 0
+    
     output_df = loop_events_df.copy()
     
     total_row = pd.DataFrame([{
@@ -298,7 +353,9 @@ def save_loop_events(loop_events_df, loop_mileage):
         'End_Stop': '',
         'Loop_Completed_At': '',
         'Loop_Count': total_loops,
-        'Total_Miles': total_miles
+        'Total_Miles': total_miles,
+        'Trip_Flip': f'{trip_flip_count} trip flips',
+        'End_Trip': ''
     }])
     
     final_df = pd.concat([output_df, total_row], ignore_index=True)
@@ -307,7 +364,7 @@ def save_loop_events(loop_events_df, loop_mileage):
     final_df = final_df.reset_index(drop=True)
     csv = final_df.to_csv(index=False)
     
-    st.success(f"Processing complete! Total loop events: {total_loops}, Total miles: {total_miles:.2f}")
+    st.success(f"Processing complete! Total loop events: {total_loops}, Total miles: {total_miles:.2f}, Trip flips detected: {trip_flip_count}")
     
     st.download_button(
         label="Download Loop Events CSV",
@@ -317,7 +374,7 @@ def save_loop_events(loop_events_df, loop_mileage):
     )
     
     st.header("Summary Statistics")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("Total Loop Events", total_loops)
@@ -328,6 +385,9 @@ def save_loop_events(loop_events_df, loop_mileage):
     with col3:
         unique_blocks = len(loop_events_df['Block'].unique())
         st.metric("Unique Blocks", unique_blocks)
+    
+    with col4:
+        st.metric("Trip Flips", trip_flip_count, help="Loops completed with trip ID changes")
     
     st.header("Loop Events Data")
     st.dataframe(loop_events_df, use_container_width=True)
