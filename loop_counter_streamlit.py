@@ -10,7 +10,11 @@ def main():
     st.title("Bus Data Processor (API to CSV)")
     st.write("Fetch bus stop data from an API for a selected date range, process it to count loops, calculate mileage, and save a summary CSV.")
 
-    API_BASE_URL = "https://avail360-api.myavail.cloud/StopReports/v1/CATA/"
+    # API endpoint selection
+    API_ENDPOINTS = {
+        "Stop Report": "https://avail360-api.myavail.cloud/StopReports/v1/CATA/",
+        "Stop Report Detail": "https://avail360-api.myavail.cloud/StopReportsDetail/v1/CATA/"
+    }
     
     # Available stops for dropdown selection
     AVAILABLE_STOPS = [
@@ -32,6 +36,16 @@ def main():
     }
 
     st.header("Configuration")
+    
+    # API Source Selection
+    api_source = st.selectbox(
+        "API Data Source",
+        options=list(API_ENDPOINTS.keys()),
+        index=0,
+        help="Select which API endpoint to fetch data from"
+    )
+    API_BASE_URL = API_ENDPOINTS[api_source]
+    
     api_key = st.text_input("API Subscription Key", type="password", help="Enter your API subscription key")
     
     if not api_key:
@@ -73,19 +87,77 @@ def main():
         st.error("Start date cannot be after the end date.")
         return
 
-    if st.button("Fetch, Process, and Download Summary", type="primary"):
-        run_full_process(start_date, end_date, api_key, API_BASE_URL, loop_mileage, start_stop, end_stop, direction, ROUTE_MAPPING[route_loop], ROUTE_MAPPING)
+    col_btn1, col_btn2 = st.columns([3, 1])
+    
+    with col_btn1:
+        fetch_button = st.button("Fetch, Process, and Download Summary", type="primary")
+    
+    with col_btn2:
+        if st.session_state.get('fetch_triggered', False):
+            if st.button("🔄 Clear Results"):
+                # Clear session state
+                st.session_state['fetch_triggered'] = False
+                if 'cached_data' in st.session_state:
+                    del st.session_state['cached_data']
+                if 'cached_data_key' in st.session_state:
+                    del st.session_state['cached_data_key']
+                if 'params' in st.session_state:
+                    del st.session_state['params']
+                st.rerun()
+    
+    if fetch_button:
+        # Store parameters and trigger fetch
+        st.session_state['fetch_triggered'] = True
+        st.session_state['params'] = {
+            'start_date': start_date,
+            'end_date': end_date,
+            'api_key': api_key,
+            'api_base_url': API_BASE_URL,
+            'loop_mileage': loop_mileage,
+            'start_stop': start_stop,
+            'end_stop': end_stop,
+            'direction': direction,
+            'route_filter': ROUTE_MAPPING[route_loop],
+            'route_mapping': ROUTE_MAPPING
+        }
+    
+    # Process and display data if fetch was triggered
+    if st.session_state.get('fetch_triggered', False):
+        params = st.session_state['params']
+        run_full_process(
+            params['start_date'],
+            params['end_date'],
+            params['api_key'],
+            params['api_base_url'],
+            params['loop_mileage'],
+            params['start_stop'],
+            params['end_stop'],
+            params['direction'],
+            params['route_filter'],
+            params['route_mapping']
+        )
 
 def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, start_stop, end_stop, direction_to_keep, route_filter, route_mapping):
     start_datetime = datetime.combine(start_date, time(6, 0))
     end_datetime = datetime.combine(end_date + timedelta(days=1), time(3, 0))
 
-    with st.spinner("Fetching data from API..."):
-        api_data = fetch_data_in_chunks(start_datetime, end_datetime, api_base_url, api_key)
-
-    if not api_data:
-        st.info("No data was returned from the API for the selected date range.")
-        return
+    # Check if we need to fetch data or if it's already cached
+    cache_key = f"{start_date}_{end_date}_{api_base_url}"
+    if 'cached_data_key' not in st.session_state or st.session_state['cached_data_key'] != cache_key:
+        # Need to fetch new data
+        with st.spinner("Fetching data from API..."):
+            api_data = fetch_data_in_chunks(start_datetime, end_datetime, api_base_url, api_key)
+        
+        if not api_data:
+            st.info("No data was returned from the API for the selected date range.")
+            return
+        
+        # Cache the data
+        st.session_state['cached_data'] = api_data
+        st.session_state['cached_data_key'] = cache_key
+    else:
+        # Use cached data
+        api_data = st.session_state['cached_data']
            
     with st.spinner("Processing loops..."):
         try:
