@@ -24,7 +24,9 @@ def main():
         "Pattee TC EB", 
         "Lot 83 West", 
         "Pattee TC WB", 
-        "Schlow Lib_CATA"
+        "Schlow Lib_CATA",
+        "Jordan Center",
+        "J Elliott Bldg"
     ]
     
     # Route mapping
