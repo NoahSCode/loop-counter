@@ -86,7 +86,29 @@ def main():
     if start_date > end_date:
         st.error("Start date cannot be after the end date.")
         return
+    st.header("Route and Direction Selection")
+    
+    # Define the threshold date
+    CUTOFF_DATE = datetime(2026, 1, 12).date()
 
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        route_loop = st.selectbox("Route Loop", ["BL", "WL", "BL Gameday", "WL Gameday"], help="Select the route loop to analyze")
+    
+    with col2:
+        # Check if start date is Jan 12, 2026 or later
+        if start_date >= CUTOFF_DATE:
+            direction = st.selectbox(
+                "Direction", 
+                options=["IB", "OB", "Both"], 
+                index=0,
+                help="Select direction for dates on or after Jan 12, 2026"
+            )
+        else:
+            direction = "L"
+            st.info("Direction defaulted to 'L' for dates prior to Jan 12, 2026.")
+            st.disabled = True # Visual indicator that it's locked
     col_btn1, col_btn2 = st.columns([3, 1])
     
     with col_btn1:
@@ -210,7 +232,10 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
                 return
 
             # Filter by direction only (NOT by stops - we need to see all stops to detect complete loops)
-            df_filtered = df_route_filtered[df_route_filtered['Direction'] == direction_to_keep].copy()
+            if direction_to_keep == "Both":
+                df_filtered = df_route_filtered[df_route_filtered['Direction'].isin(["IB", "OB"])].copy()
+            else:
+                df_filtered = df_route_filtered[df_route_filtered['Direction'] == direction_to_keep].copy()
 
             if df_filtered.empty:
                 st.error(f"No data found for the specified stops and Direction '{direction_to_keep}' in Route '{route_filter}'.")
