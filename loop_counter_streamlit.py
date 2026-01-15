@@ -74,7 +74,7 @@ def main():
     
     with col_r2:
         if start_date >= CUTOFF_DATE:
-            direction = st.selectbox("Direction", options=["IB", "OB", "Both"], index=0)
+            direction = st.selectbox("Direction", options=["I", "O", "Both"], index=0)
         else:
             direction = "L"
             st.text_input("Direction", value="L (Default for pre-Jan 12)", disabled=True)
@@ -152,7 +152,7 @@ def run_full_process(start_date, end_date, api_key, api_base_url, loop_mileage, 
 
             # Direction Filtering (Handling IB, OB, and Both)
             if direction_to_keep == "Both":
-                df_filtered = df_route_filtered[df_route_filtered['Direction'].isin(["IB", "OB"])].copy()
+                df_filtered = df_route_filtered[df_route_filtered['Direction'].isin(["I", "O"])].copy()
             else:
                 df_filtered = df_route_filtered[df_route_filtered['Direction'] == direction_to_keep].copy()
 
