@@ -18,15 +18,34 @@ def main():
     
     # Available stops for dropdown selection
     AVAILABLE_STOPS = [
-        "Jordan East Pk", 
-        "Nittany Com Ctr", 
-        "College_Allen", 
-        "Pattee TC EB", 
-        "Lot 83 West", 
-        "Pattee TC WB", 
-        "Schlow Lib_CATA",
+        "Atherton Hall",
+        "BeaverHill Apts",
+        "Calder Commons",
+        "College_Allen",
+        "Curtin Hall",
+        "Forest Res Lab",
+        "HastinsRd",
+        "IM Building",
+        "J Elliott Bldg",
         "Jordan Center",
-        "J Elliott Bldg"
+        "Jordan East Pk",
+        "JordanCtr_GateD",
+        "Lot 43 East",
+        "Lot 83 West",
+        "McCoyNatatorium",
+        "Meridian",
+        "Miln Sc Complex",
+        "Nittany Com Ctr",
+        "Pattee TC EB",
+        "Pattee TC WB",
+        "PavilionTheatre",
+        "Rec Hall",
+        "Schlow Lib_CATA",
+        "Shields Bldg",
+        "VisualArtsBldg",
+        "Walker Building",
+        "Westgate_Bldg",
+        "White Building",
     ]
     
     # Route mapping
